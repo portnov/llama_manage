@@ -4,6 +4,7 @@
 import argparse
 import json
 import os
+import signal
 import sys
 import threading
 import time
@@ -308,8 +309,8 @@ def get_loaded_models(url):
     data = resp.json()["data"]
     return [m["id"] for m in data if m["status"]["value"] == "loaded"]
 
-def cmd_ps(args):
-    url = get_url(args)
+def _fetch_slots(args, url):
+    """Fetch and return all slot rows (list of dicts)."""
     all_slots = []
     if args.model is None:
         if get_is_router(url):
@@ -339,8 +340,7 @@ def cmd_ps(args):
         all_slots = [s for s in all_slots if s["is_processing"]]
 
     if not all_slots:
-        print("No slots found.")
-        return
+        return []
 
     rows = []
     for s in all_slots:
@@ -353,8 +353,45 @@ def cmd_ps(args):
             "PROMPT": get_prompt_process(s),
             "DECODED": get_decoded(s),
         })
+    return rows
 
-    print_table(rows, PS_COLUMNS)
+
+def cmd_ps(args):
+    url = get_url(args)
+    interval = args.interval
+    count = args.count
+
+    if interval is None:
+        # single-shot mode (original behavior)
+        rows = _fetch_slots(args, url)
+        if not rows:
+            print("No slots found.")
+            return
+        print_table(rows, PS_COLUMNS)
+        return
+
+    # polling mode
+    running = True
+
+    def handler(signum, frame):
+        nonlocal running
+        running = False
+
+    old_handler = signal.signal(signal.SIGINT, handler)
+    try:
+        iteration = 0
+        while running and (count is None or iteration < count):
+            rows = _fetch_slots(args, url)
+            if rows:
+                print_table(rows, PS_COLUMNS)
+            else:
+                print("No slots found.")
+
+            iteration += 1
+            if running and (count is None or iteration < count):
+                time.sleep(interval)
+    finally:
+        signal.signal(signal.SIGINT, old_handler)
 
 
 def main():
@@ -390,6 +427,10 @@ def main():
     ps_parser.add_argument("-a", "--all", action="store_true",
                            help="Show all slots, not just active ones")
     ps_parser.add_argument("-m", "--model", help="Model ID")
+    ps_parser.add_argument("interval", nargs='?', type=float,
+                           help="Refresh interval in seconds (polling mode)")
+    ps_parser.add_argument("count", nargs='?', type=int,
+                           help="Number of iterations (default: infinite)")
     ps_parser.set_defaults(func=cmd_ps)
 
     # pull
