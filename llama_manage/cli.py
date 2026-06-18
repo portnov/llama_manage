@@ -2,8 +2,11 @@
 """llama.cpp server management CLI (docker-style)."""
 
 import argparse
+import json
 import os
 import sys
+import threading
+import time
 from fnmatch import fnmatch
 
 import requests
@@ -164,6 +167,98 @@ def check_loaded(args, model_id):
     print(f"Model {model_id} is not loaded", file=sys.stderr)
     sys.exit(1)
 
+
+def _progress_bar(pct, width=30):
+    filled = int(width * pct / 100)
+    bar = "#" * filled + "-" * (width - filled)
+    return f"[{bar}]"
+
+
+def _print_progress(model_id, done, total, rate):
+    pct = (done / total * 100) if total else 0
+    bar = _progress_bar(pct)
+    line = f"\r{model_id}  {bar} {pct:6.1f}%  {format_number(done, 'B', True):>10} / {format_number(total, 'B', True):>10}"
+    if rate is not None:
+        line += f"  {format_number(rate, 'B/s', True)}"
+    sys.stdout.write(line)
+    sys.stdout.flush()
+
+
+def cmd_pull(args):
+    url = get_url(args)
+    model_id = args.id
+
+    # Subscribe to SSE first, then trigger download
+    sse_resp = requests.get(url + "models/sse", stream=True)
+    sse_resp.raise_for_status()
+
+    # Start the download in a separate thread so we don't block SSE
+    def trigger_download():
+        time.sleep(0.5)
+        resp = requests.post(url + "models", json={"model": model_id})
+        resp.raise_for_status()
+    threading.Thread(target=trigger_download, daemon=True).start()
+
+    total_done = 0
+    total_size = 0
+    last_done = 0
+    last_time = None
+
+    try:
+        for line in sse_resp.iter_lines(decode_unicode=True):
+            line = line.strip()
+            if not line or not line.startswith("data: "):
+                continue
+            try:
+                event = json.loads(line[6:])
+            except json.JSONDecodeError:
+                continue
+
+            if event.get("model") != model_id:
+                continue
+
+            evt = event.get("event")
+            data = event.get("data", {})
+
+            if evt == "download_progress":
+                # data is {"progress": {url: {done, total}, ...}}
+                progress = data.get("progress", data)
+                total_done = 0
+                total_size = 0
+                for info in progress.values():
+                    total_done += info.get("done", 0)
+                    total_size += info.get("total", 0)
+
+                now = time.time()
+                if last_time is not None:
+                    dt = now - last_time
+                    if dt > 0:
+                        rate = (total_done - last_done) / dt
+                    else:
+                        rate = None
+                else:
+                    rate = None
+                last_done = total_done
+                last_time = now
+
+                _print_progress(model_id, total_done, total_size, rate)
+
+            elif evt == "download_finished":
+                print()  # newline after progress
+                print(f"Model {model_id} downloaded successfully.")
+                return
+
+            elif evt == "download_failed":
+                print()
+                status = data.get("status", "unknown")
+                print(f"Download failed for {model_id}: {status}", file=sys.stderr)
+                sys.exit(1)
+    finally:
+        sse_resp.close()
+
+    print("SSE stream ended unexpectedly.", file=sys.stderr)
+    sys.exit(1)
+
 PS_COLUMNS = ["ID", "TASK", "CONTEXT", "PROC"]
 
 
@@ -231,6 +326,11 @@ def main():
                            help="Show all slots, not just active ones")
     ps_parser.add_argument("id", nargs='?', help="Model ID")
     ps_parser.set_defaults(func=cmd_ps)
+
+    # pull
+    pull_parser = sub.add_parser("pull", help="Download a model")
+    pull_parser.add_argument("id", help="Model ID to download")
+    pull_parser.set_defaults(func=cmd_pull)
 
     args = parser.parse_args()
     #print(args)
