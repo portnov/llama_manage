@@ -1,0 +1,146 @@
+# llama-manage
+
+A `docker`-style CLI for managing a [llama.cpp](https://github.com/ggml-org/llama.cpp) server.
+
+Manage models and monitor slots through the llama.cpp server REST API.
+
+## Installation
+
+```bash
+pip install .
+# or
+pipx install .
+```
+
+For development:
+
+```bash
+pip install -e .
+```
+
+## Configuration
+
+The server URL is determined by (in priority order):
+
+1. The `--url` command-line flag
+2. The `$LLAMA_URL` environment variable
+
+```bash
+export LLAMA_URL=http://localhost:8080/
+```
+
+If neither is set, the utility exits with an error.
+
+## Commands
+
+### `ls` — list models
+
+Prints a table of models: ID, tags, path, status, context, parameters, size.
+
+```bash
+llama-manage ls                      # loaded models only
+llama-manage ls -a                   # all models
+llama-manage ls gemma                # filter by ID (glob)
+llama-manage ls -t vision            # filter by tags
+llama-manage ls --full-path          # show full file paths
+```
+
+**Polling mode** (like `iostat`):
+
+```bash
+llama-manage ls 5                    # every 5 seconds (Ctrl-C to exit)
+llama-manage ls 5 10                 # every 5 seconds, 10 iterations
+llama-manage ls gemma 5              # filter + polling
+llama-manage ls gemma 5 10           # filter + polling with limit
+```
+
+For numeric patterns, use `-p`:
+
+```bash
+llama-manage ls -p "123" 5           # pattern "123", polling every 5s
+```
+
+**Positional argument heuristic:**
+
+| Command | Pattern | Interval | Count |
+|---------|---------|----------|-------|
+| `ls` | — | — | — |
+| `ls 5` | — | 5s | ∞ |
+| `ls gemma` | gemma | — | — |
+| `ls 5 10` | — | 5s | 10 |
+| `ls gemma 5` | gemma | 5s | ∞ |
+| `ls gemma 5 10` | gemma | 5s | 10 |
+
+### `load` — load a model
+
+```bash
+llama-manage load ggml-org/gemma-3-4b-it-GGUF:Q4_K_M
+```
+
+### `unload` — unload a model
+
+```bash
+llama-manage unload ggml-org/gemma-3-4b-it-GGUF:Q4_K_M
+```
+
+### `ps` — list slots
+
+Shows active tasks: slot ID, model, task number, context, processing status, prompt progress, and decoded tokens.
+
+Supports router mode: automatically detects server type and collects slots across all loaded models.
+
+```bash
+llama-manage ps                      # active tasks only
+llama-manage ps -a                   # all slots
+llama-manage ps -m gemma             # slots for a specific model
+```
+
+**Polling mode:**
+
+```bash
+llama-manage ps 5                    # every 5 seconds (Ctrl-C to exit)
+llama-manage ps 5 10                 # every 5 seconds, 10 iterations
+```
+
+### `pull` — download a model
+
+Downloads a model with a progress bar showing percentage, size, and speed.
+
+```bash
+llama-manage pull ggml-org/gemma-3-4b-it-GGUF:Q4_K_M
+```
+
+Progress is tracked via the `/models/sse` SSE endpoint.
+
+### `rm` — delete a model
+
+Removes a model from the server cache. Requires confirmation by default.
+
+```bash
+llama-manage rm ggml-org/gemma-3-4b-it-GGUF:Q4_K_M    # with confirmation
+llama-manage rm -f ggml-org/gemma-3-4b-it-GGUF:Q4_K_M  # skip confirmation
+```
+
+## Examples
+
+```bash
+# Set the URL once
+export LLAMA_URL=http://localhost:8080/
+
+# List loaded models
+llama-manage ls
+
+# Download and load a model
+llama-manage pull unsloth/gemma-4-E2B-it-qat-GGUF:Q8_0
+llama-manage load unsloth/gemma-4-E2B-it-qat-GGUF:Q8_0
+
+# Monitor slots in real time
+llama-manage ps 2
+
+# Monitor models with a filter
+llama-manage ls gemma 5
+
+# Clean up cache
+llama-manage ls -a
+llama-manage rm -f old-model-id
+```
