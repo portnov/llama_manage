@@ -1,0 +1,6 @@
+*.pyc
+lib/
+bin/
+pyvenv.cfg
+CACHEDIR.TAG
+llama_manage.egg-info/

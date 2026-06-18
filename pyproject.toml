@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "llama-manage"
+version = "0.1.0"
+description = "llama.cpp server management CLI (docker-style)"
+requires-python = ">=3.9"
+dependencies = [
+    "requests",
+]
+
+[project.scripts]
+llama-manage = "llama_manage.cli:main"
+
+[tool.setuptools.packages]
+find = {include = ["llama_manage*"]}
