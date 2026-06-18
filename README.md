@@ -37,9 +37,9 @@ If neither is set, the utility exits with an error.
 
 API key is determined by (in priority order):
 
-1. The `$LLAMA_API_KEY` environment variable
+1. The `--api-key` flag (key passed directly)
 2. The `--api-key-file` flag (reads key from file)
-3. The `--api-key` flag (key passed directly)
+3. The `$LLAMA_API_KEY` environment variable
 4. No authentication (may receive 401 from server)
 
 ```bash

@@ -22,9 +22,9 @@ def get_url(args) -> str:
 
 
 def get_api_key(args) -> str | None:
-    """Get API key from env, file, or CLI arg (in that priority order)."""
-    # 1. Environment variable
-    key = os.environ.get("LLAMA_API_KEY")
+    """Get API key from CLI arg, file, or env (in that priority order)."""
+    # 1. --api-key (CLI arg)
+    key = getattr(args, "api_key", None)
     if key:
         return key
 
@@ -37,8 +37,8 @@ def get_api_key(args) -> str | None:
             print(f"Error reading API key file: {e}", file=sys.stderr)
             sys.exit(1)
 
-    # 3. --api-key
-    key = getattr(args, "api_key", None)
+    # 3. Environment variable
+    key = os.environ.get("LLAMA_API_KEY")
     if key:
         return key
 
