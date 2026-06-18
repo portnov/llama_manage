@@ -20,6 +20,38 @@ def get_url(args) -> str:
         sys.exit(1)
     return url.rstrip("/") + "/"
 
+
+def get_api_key(args) -> str | None:
+    """Get API key from env, file, or CLI arg (in that priority order)."""
+    # 1. Environment variable
+    key = os.environ.get("LLAMA_API_KEY")
+    if key:
+        return key
+
+    # 2. --api-key-file
+    key_file = getattr(args, "api_key_file", None)
+    if key_file:
+        try:
+            return open(key_file).read().strip()
+        except OSError as e:
+            print(f"Error reading API key file: {e}", file=sys.stderr)
+            sys.exit(1)
+
+    # 3. --api-key
+    key = getattr(args, "api_key", None)
+    if key:
+        return key
+
+    return None
+
+
+def get_headers(args) -> dict:
+    """Build request headers with optional Bearer auth."""
+    key = get_api_key(args)
+    if key:
+        return {"Authorization": f"Bearer {key}"}
+    return {}
+
 def format_number(size, unit : str = '', binary : bool = True):
     if binary:
         divisor = 1024.0
@@ -130,7 +162,7 @@ def _parse_ls_args(args):
 
 def _fetch_models(args, url, pattern):
     """Fetch and return all model rows (list of dicts)."""
-    resp = requests.get(url + "models")
+    resp = requests.get(url + "models", headers=get_headers(args))
     resp.raise_for_status()
     data = resp.json()["data"]
 
@@ -199,7 +231,7 @@ def cmd_ls(args):
 
 def cmd_load(args):
     url = get_url(args)
-    resp = requests.post(url + "models/load", json={"model": args.id})
+    resp = requests.post(url + "models/load", headers=get_headers(args), json={"model": args.id})
     resp.raise_for_status()
     if resp.json().get("success"):
         print(f"Model {args.id} loading started.")
@@ -210,7 +242,7 @@ def cmd_load(args):
 
 def cmd_unload(args):
     url = get_url(args)
-    resp = requests.post(url + "models/unload", json={"model": args.id})
+    resp = requests.post(url + "models/unload", headers=get_headers(args), json={"model": args.id})
     resp.raise_for_status()
     if resp.json().get("success"):
         print(f"Model {args.id} unloading started.")
@@ -228,7 +260,7 @@ def cmd_rm(args):
             print("Aborted.")
             return
 
-    resp = requests.delete(url + "models", params={"model": model_id})
+    resp = requests.delete(url + "models", headers=get_headers(args), params={"model": model_id})
     resp.raise_for_status()
     if resp.json().get("success"):
         print(f"Model {model_id} deleted.")
@@ -256,7 +288,7 @@ def print_table(rows, columns):
 
 def check_loaded(args, model_id):
     url = get_url(args)
-    resp = requests.get(url + "models")
+    resp = requests.get(url + "models", headers=get_headers(args))
     resp.raise_for_status()
     data = resp.json()["data"]
     for m in data:
@@ -287,13 +319,13 @@ def cmd_pull(args):
     model_id = args.id
 
     # Subscribe to SSE first, then trigger download
-    sse_resp = requests.get(url + "models/sse", stream=True)
+    sse_resp = requests.get(url + "models/sse", headers=get_headers(args), stream=True)
     sse_resp.raise_for_status()
 
     # Start the download in a separate thread so we don't block SSE
     def trigger_download():
         time.sleep(0.5)
-        resp = requests.post(url + "models", json={"model": model_id})
+        resp = requests.post(url + "models", headers=get_headers(args), json={"model": model_id})
         resp.raise_for_status()
     threading.Thread(target=trigger_download, daemon=True).start()
 
@@ -376,14 +408,14 @@ def get_prompt_process(slot):
         return "-"
     return format_number(processed, binary=False) + " / " + format_number(total, binary=False)
 
-def get_is_router(url):
-    resp = requests.get(url + "props")
+def get_is_router(url, headers):
+    resp = requests.get(url + "props", headers=headers)
     resp.raise_for_status()
     data = resp.json()
     return data.get("role", "") == "router"
 
-def get_loaded_models(url):
-    resp = requests.get(url + "models")
+def get_loaded_models(url, headers):
+    resp = requests.get(url + "models", headers=headers)
     resp.raise_for_status()
     data = resp.json()["data"]
     return [m["id"] for m in data if m["status"]["value"] == "loaded"]
@@ -391,24 +423,25 @@ def get_loaded_models(url):
 def _fetch_slots(args, url):
     """Fetch and return all slot rows (list of dicts)."""
     all_slots = []
+    headers = get_headers(args)
     if args.model is None:
-        if get_is_router(url):
-            models = get_loaded_models(url)
+        if get_is_router(url, headers):
+            models = get_loaded_models(url, headers)
             for model_id in models:
-                resp = requests.get(url + "slots", params={"model": model_id})
+                resp = requests.get(url + "slots", headers=headers, params={"model": model_id})
                 resp.raise_for_status()
                 slots = resp.json()
                 for slot in slots:
                     slot["model"] = model_id
                 all_slots.extend(slots)
         else:
-            resp = requests.get(url + "slots")
+            resp = requests.get(url + "slots", headers=headers)
             resp.raise_for_status()
             slots = resp.json()
             all_slots.extend(slots)
     else:
         check_loaded(args, args.model)
-        resp = requests.get(url + "slots", params={"model": args.model})
+        resp = requests.get(url + "slots", headers=headers, params={"model": args.model})
         resp.raise_for_status()
         slots = resp.json()
         for slot in slots:
@@ -478,6 +511,8 @@ def main():
         description="llama.cpp server management CLI",
     )
     parser.add_argument("--url", help="Server URL (e.g. http://localhost:8080/)")
+    parser.add_argument("--api-key", help="API key for authentication")
+    parser.add_argument("--api-key-file", help="Path to file containing API key")
 
     sub = parser.add_subparsers(dest="command")
 

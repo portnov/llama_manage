@@ -20,7 +20,9 @@ pip install -e .
 
 ## Configuration
 
-The server URL is determined by (in priority order):
+### Server URL
+
+Determined by (in priority order):
 
 1. The `--url` command-line flag
 2. The `$LLAMA_URL` environment variable
@@ -30,6 +32,23 @@ export LLAMA_URL=http://localhost:8080/
 ```
 
 If neither is set, the utility exits with an error.
+
+### Authentication
+
+API key is determined by (in priority order):
+
+1. The `$LLAMA_API_KEY` environment variable
+2. The `--api-key-file` flag (reads key from file)
+3. The `--api-key` flag (key passed directly)
+4. No authentication (may receive 401 from server)
+
+```bash
+export LLAMA_API_KEY=your-secret-key
+# or
+llama-manage --api-key your-secret-key ls
+# or
+llama-manage --api-key-file ~/.llama-api-key ls
+```
 
 ## Commands
 
