@@ -130,6 +130,7 @@ def _send_and_stream(url, headers, model_id, messages, stream, prefix_printed=Tr
     """Send messages to the server and stream the response.
 
     Returns the full content text (for adding to message history).
+    Raises requests.exceptions.HTTPError on server errors.
     """
     body = {
         "model": model_id,
@@ -148,7 +149,12 @@ def _send_and_stream(url, headers, model_id, messages, stream, prefix_printed=Tr
         if prefix_printed:
             sys.stdout.write("assistant> ")
             sys.stdout.flush()
-        return stream_response(resp, prefix_printed=prefix_printed)
+        try:
+            return stream_response(resp, prefix_printed=prefix_printed)
+        except (KeyboardInterrupt, requests.exceptions.ConnectionError):
+            # Ctrl-C or network broken during streaming — graceful exit
+            print()
+            raise
     else:
         data = resp.json()
         msg = data["choices"][0]["message"]
@@ -165,9 +171,31 @@ def run_once(url, headers, model_id, prompt, system_prompt, stream):
         messages.append({"role": "system", "content": system_prompt})
     messages.append({"role": "user", "content": prompt})
 
-    _send_and_stream(url, headers, model_id, messages, stream, prefix_printed=True)
-    if stream:
+    try:
+        _send_and_stream(url, headers, model_id, messages, stream, prefix_printed=True)
+        if stream:
+            print()
+    except requests.exceptions.HTTPError as e:
         print()
+        try:
+            err = e.response.json().get("error", {})
+            msg = err.get("message", str(e))
+        except (json.JSONDecodeError, AttributeError):
+            msg = str(e)
+        print(f"Error: {msg}", file=sys.stderr)
+        sys.exit(1)
+    except (KeyboardInterrupt, requests.exceptions.ConnectionError):
+        print()
+        sys.exit(130)  # standard exit code for Ctrl-C
+
+
+def _format_error(e):
+    """Extract a human-readable error message from an HTTPError."""
+    try:
+        err = e.response.json().get("error", {})
+        return err.get("message", str(e))
+    except (json.JSONDecodeError, AttributeError):
+        return str(e)
 
 
 def run_repl(url, headers, model_id, system_prompt, stream):
@@ -200,8 +228,11 @@ def run_repl(url, headers, model_id, system_prompt, stream):
             except requests.exceptions.HTTPError as e:
                 # Server error (e.g., context overflow)
                 print()
-                print(f"\nError: {e.response.json().get('error', {}).get('message', str(e))}",
-                      file=sys.stderr)
+                print(f"\nError: {_format_error(e)}", file=sys.stderr)
+                break
+            except (KeyboardInterrupt, requests.exceptions.ConnectionError):
+                # Ctrl-C or network broken during generation
+                print()
                 break
 
             if stream:
