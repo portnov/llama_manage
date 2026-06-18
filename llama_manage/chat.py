@@ -41,8 +41,8 @@ def stream_response(resp, prefix_printed=True):
     full_text = ""
     last_type = None  # None, "content", "reasoning"
 
-    for line in resp.iter_lines(decode_unicode=True):
-        line = line.strip()
+    for raw_line in resp.iter_lines(decode_unicode=False):
+        line = raw_line.decode("utf-8").strip()
         if not line or not line.startswith("data: "):
             continue
         data = line[6:]
