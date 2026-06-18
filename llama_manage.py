@@ -16,6 +16,21 @@ def get_url(args) -> str:
         sys.exit(1)
     return url.rstrip("/") + "/"
 
+def format_number(size, unit : str = '', binary : bool = True):
+    if binary:
+        divisor = 1024.0
+        suffixes = ['', 'Ki', 'Mi', 'Gi', 'Ti', 'Pi', 'Ei']
+    else:
+        divisor = 1000.0
+        suffixes = ['', 'K', 'M', 'B', 'T', 'P', 'E']
+    suffixes = [s + unit for s in suffixes]
+    # Support negative numbers and zero
+    for suffix in suffixes[:-1]:
+        if abs(size) < divisor:
+            return f"{size:.2f} {suffix}"
+        size /= divisor
+    return f"{size:.2f} {suffixes[-1]}"
+
 def get_path(args, model):
     path = model.get("path", None)
     if path is not None:
@@ -43,8 +58,24 @@ def show_tags(model):
         return "-"
     return ", ".join(tags)
 
-LS_COLUMNS = ["ID", "PATH", "STATUS", "TAGS"]
+LS_COLUMNS = ["ID", "TAGS", "PATH", "STATUS", "CONTEXT", "PARAMS", "SIZE"]
 
+def get_ctx_size(model):
+    if "meta" not in model:
+        return "-"
+    n_ctx = model["meta"]["n_ctx"]
+    n_ctx_train = model["meta"]["n_ctx_train"]
+    return format_number(n_ctx, binary=False) + " / " + format_number(n_ctx_train, binary=False)
+
+def get_n_params(model):
+    if "meta" not in model:
+        return "-"
+    return format_number(model["meta"]["n_params"], binary=False)
+
+def get_size(model):
+    if "meta" not in model:
+        return "-"
+    return format_number(model["meta"]["size"], unit='B', binary=True)
 
 def cmd_ls(args):
     url = get_url(args)
@@ -52,7 +83,7 @@ def cmd_ls(args):
     resp.raise_for_status()
     data = resp.json()["data"]
 
-    if not args.all and not args.id:
+    if not args.all and not (args.id or args.tag):
         data = [m for m in data if m["status"]["value"] == "loaded"]
 
     rows = []
@@ -68,9 +99,12 @@ def cmd_ls(args):
 
         rows.append({
             "ID": m["id"],
+            "TAGS": show_tags(m),
             "PATH": get_path(args, m),
             "STATUS": m["status"]["value"],
-            "TAGS": show_tags(m),
+            "CONTEXT": get_ctx_size(m),
+            "PARAMS" : get_n_params(m),
+            "SIZE": get_size(m)
         })
 
     if not rows:
@@ -130,7 +164,7 @@ def check_loaded(args, model_id):
     print(f"Model {model_id} is not loaded", file=sys.stderr)
     sys.exit(1)
 
-PS_COLUMNS = ["ID", "TASK", "CTX", "PROC"]
+PS_COLUMNS = ["ID", "TASK", "CONTEXT", "PROC"]
 
 
 def cmd_ps(args):
@@ -156,7 +190,7 @@ def cmd_ps(args):
         rows.append({
             "ID": s["id"],
             "TASK": s["id_task"],
-            "CTX": s["n_ctx"],
+            "CONTEXT": s["n_ctx"],
             "PROC": "Y" if s["is_processing"] else "N",
         })
 
