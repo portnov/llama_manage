@@ -561,6 +561,16 @@ def main():
     rm_parser.add_argument("id", help="Model ID to delete")
     rm_parser.set_defaults(func=cmd_rm)
 
+    # run
+    from llama_manage.chat import cmd_run as cmd_run_func
+    run_parser = sub.add_parser("run", help="Chat with a model")
+    run_parser.add_argument("id", help="Model ID")
+    run_parser.add_argument("prompt", nargs='?', help="Single prompt (non-interactive)")
+    run_parser.add_argument("--system", help="System prompt")
+    run_parser.add_argument("--no-stream", action="store_true",
+                            help="Disable streaming")
+    run_parser.set_defaults(func=cmd_run_func)
+
     args = parser.parse_args()
     #print(args)
     if not args.command:
