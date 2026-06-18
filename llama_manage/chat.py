@@ -126,6 +126,38 @@ def send_message(url, headers, model_id, messages, stream):
     return ""
 
 
+def _send_and_stream(url, headers, model_id, messages, stream, prefix_printed=True):
+    """Send messages to the server and stream the response.
+
+    Returns the full content text (for adding to message history).
+    """
+    body = {
+        "model": model_id,
+        "messages": messages,
+        "stream": stream,
+    }
+    resp = requests.post(
+        url + "v1/chat/completions",
+        headers=headers,
+        json=body,
+        stream=stream,
+    )
+    resp.raise_for_status()
+
+    if stream:
+        if prefix_printed:
+            sys.stdout.write("assistant> ")
+            sys.stdout.flush()
+        return stream_response(resp, prefix_printed=prefix_printed)
+    else:
+        data = resp.json()
+        msg = data["choices"][0]["message"]
+        reasoning = msg.get("reasoning_content", "")
+        content = msg.get("content", "")
+        _output_non_stream(reasoning, content)
+        return content
+
+
 def run_once(url, headers, model_id, prompt, system_prompt, stream):
     """Run a single chat request and exit."""
     messages = []
@@ -133,25 +165,51 @@ def run_once(url, headers, model_id, prompt, system_prompt, stream):
         messages.append({"role": "system", "content": system_prompt})
     messages.append({"role": "user", "content": prompt})
 
+    _send_and_stream(url, headers, model_id, messages, stream, prefix_printed=True)
     if stream:
-        body = {
-            "model": model_id,
-            "messages": messages,
-            "stream": True,
-        }
-        resp = requests.post(
-            url + "v1/chat/completions",
-            headers=headers,
-            json=body,
-            stream=True,
-        )
-        resp.raise_for_status()
-        sys.stdout.write("assistant> ")
-        sys.stdout.flush()
-        stream_response(resp, prefix_printed=True)
         print()
-    else:
-        send_message(url, headers, model_id, messages, stream=False)
+
+
+def run_repl(url, headers, model_id, system_prompt, stream):
+    """Run an interactive chat REPL."""
+    messages = []
+    if system_prompt:
+        messages.append({"role": "system", "content": system_prompt})
+
+    try:
+        while True:
+            try:
+                line = input("\nuser> ")
+            except EOFError:
+                break  # Ctrl-D
+            except KeyboardInterrupt:
+                break  # Ctrl-C — graceful exit
+
+            if not line:
+                continue  # empty line — skip
+
+            messages.append({"role": "user", "content": line})
+            sys.stdout.write("assistant> ")
+            sys.stdout.flush()
+
+            try:
+                content = _send_and_stream(
+                    url, headers, model_id, messages, stream, prefix_printed=True
+                )
+                messages.append({"role": "assistant", "content": content})
+            except requests.exceptions.HTTPError as e:
+                # Server error (e.g., context overflow)
+                print()
+                print(f"\nError: {e.response.json().get('error', {}).get('message', str(e))}",
+                      file=sys.stderr)
+                break
+
+            if stream:
+                print()
+    except KeyboardInterrupt:
+        pass  # graceful exit
+    finally:
+        print()  # final newline
 
 
 def cmd_run(args):
@@ -173,6 +231,4 @@ def cmd_run(args):
     if args.prompt is not None:
         run_once(url, headers, model_id, args.prompt, args.system, not args.no_stream)
     else:
-        # REPL mode — not implemented yet (stage 3)
-        print("Error: interactive mode is not implemented yet.", file=sys.stderr)
-        sys.exit(1)
+        run_repl(url, headers, model_id, args.system, not args.no_stream)
