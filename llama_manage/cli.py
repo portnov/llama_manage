@@ -138,6 +138,24 @@ def cmd_unload(args):
         print(f"Failed to unload model {args.id}.", file=sys.stderr)
         sys.exit(1)
 
+
+def cmd_rm(args):
+    url = get_url(args)
+    model_id = args.id
+
+    if not args.force:
+        if not input(f"Delete model {model_id}? [y/N] ").strip().lower() == "y":
+            print("Aborted.")
+            return
+
+    resp = requests.delete(url + "models", params={"model": model_id})
+    resp.raise_for_status()
+    if resp.json().get("success"):
+        print(f"Model {model_id} deleted.")
+    else:
+        print(f"Failed to delete model {model_id}.", file=sys.stderr)
+        sys.exit(1)
+
 def print_table(rows, columns):
     """Print a list of dicts as a formatted table.
 
@@ -331,6 +349,13 @@ def main():
     pull_parser = sub.add_parser("pull", help="Download a model")
     pull_parser.add_argument("id", help="Model ID to download")
     pull_parser.set_defaults(func=cmd_pull)
+
+    # rm
+    rm_parser = sub.add_parser("rm", help="Delete a model from cache")
+    rm_parser.add_argument("-f", "--force", action="store_true",
+                           help="Delete without confirmation")
+    rm_parser.add_argument("id", help="Model ID to delete")
+    rm_parser.set_defaults(func=cmd_rm)
 
     args = parser.parse_args()
     #print(args)
