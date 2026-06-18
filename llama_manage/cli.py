@@ -277,7 +277,7 @@ def cmd_pull(args):
     print("SSE stream ended unexpectedly.", file=sys.stderr)
     sys.exit(1)
 
-PS_COLUMNS = ["ID", "TASK", "CONTEXT", "PROC", "DECODED"]
+PS_COLUMNS = ["ID", "TASK", "CONTEXT", "PROC", "PROMPT", "DECODED"]
 
 def get_decoded(slot):
     if "next_token" not in slot:
@@ -288,6 +288,13 @@ def get_decoded(slot):
     else:
         n_decoded = tokens.get("n_decoded", 0)
     return format_number(n_decoded)
+
+def get_prompt_process(slot):
+    processed = slot.get("n_prompt_tokens_processed", 0)
+    total = slot.get("n_prompt_tokens")
+    if total == 0 and processed == 0:
+        return "-"
+    return format_number(processed) + " / " + format_number(total)
 
 def cmd_ps(args):
     url = get_url(args)
@@ -314,6 +321,7 @@ def cmd_ps(args):
             "TASK": s["id_task"],
             "CONTEXT": s["n_ctx"],
             "PROC": "Y" if s["is_processing"] else "N",
+            "PROMPT": get_prompt_process(s),
             "DECODED": get_decoded(s),
         })
 
