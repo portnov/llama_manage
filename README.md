@@ -140,6 +140,42 @@ llama-manage rm ggml-org/gemma-3-4b-it-GGUF:Q4_K_M    # with confirmation
 llama-manage rm -f ggml-org/gemma-3-4b-it-GGUF:Q4_K_M  # skip confirmation
 ```
 
+### `run` — chat with a model
+
+Interactive chat or single prompt via the OpenAI-compatible `/v1/chat/completions` endpoint.
+
+```bash
+llama-manage run gemma "Hello"          # single prompt (like curl)
+llama-manage run gemma                  # interactive chat (REPL)
+```
+
+**Options:**
+
+```bash
+llama-manage run gemma --system "You are a helpful assistant"  # system prompt
+llama-manage run gemma "Hello" --no-stream                     # disable streaming
+```
+
+**Usage:**
+
+- **Single prompt:** outputs the response and exits
+- **REPL:** enter messages line by line (Enter to send, Ctrl-D to exit)
+- **Streaming:** enabled by default; tokens appear as they are generated
+- **Reasoning models:** reasoning tokens are shown with `thinking>` prefix, content with `assistant>` prefix
+- **Error handling:** if the model is not loaded, the command exits with a hint to run `load` first
+
+**Example session:**
+
+```
+$ llama-manage run gemma
+
+user> What is 2+2?
+
+assistant> The answer is 4.
+
+user> ^D  # exit
+```
+
 ## Examples
 
 ```bash
@@ -158,6 +194,10 @@ llama-manage ps 2
 
 # Monitor models with a filter
 llama-manage ls gemma 5
+
+# Chat with a model
+llama-manage run gemma "Explain quantum computing in simple terms"
+llama-manage run gemma  # interactive REPL
 
 # Clean up cache
 llama-manage ls -a
