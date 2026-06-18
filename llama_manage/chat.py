@@ -92,40 +92,6 @@ def stream_response(resp, prefix_printed=True):
     return full_text
 
 
-def send_message(url, headers, model_id, messages, stream):
-    """Send a chat message to the server and return the assistant's content.
-
-    Returns the full content text (for adding to message history).
-    Reasoning content is not returned (not stored in history).
-    """
-    body = {
-        "model": model_id,
-        "messages": messages,
-        "stream": stream,
-    }
-
-    resp = requests.post(
-        url + "v1/chat/completions",
-        headers=headers,
-        json=body,
-        stream=stream,
-    )
-    resp.raise_for_status()
-
-    if not stream:
-        data = resp.json()
-        msg = data["choices"][0]["message"]
-        reasoning = msg.get("reasoning_content", "")
-        content = msg.get("content", "")
-        _output_non_stream(reasoning, content)
-        return content
-
-    # Streaming — handled by caller via stream_response()
-    # This branch is not reached when stream=True because the caller
-    # handles the response directly.
-    return ""
-
-
 def _send_and_stream(url, headers, model_id, messages, stream, prefix_printed=True):
     """Send messages to the server and stream the response.
 
