@@ -81,13 +81,60 @@ def get_size(model):
         return "-"
     return format_number(model["meta"]["size"], unit='B', binary=True)
 
-def cmd_ls(args):
-    url = get_url(args)
+def _is_number(s):
+    """Check if a string looks like a number (int or float)."""
+    try:
+        float(s)
+        return True
+    except (ValueError, TypeError):
+        return False
+
+
+def _parse_ls_args(args):
+    """Parse ls positional args with heuristic.
+
+    Returns (pattern, interval, count) tuple.
+    """
+    if args.pattern is not None:
+        # -p/--pattern explicitly set — positional args are strictly interval and count
+        pos = args.positional or []
+        if len(pos) > 2:
+            print("Error: with --pattern, at most 2 positional args (interval, count).", file=sys.stderr)
+            sys.exit(1)
+        interval = float(pos[0]) if len(pos) >= 1 else None
+        count = int(pos[1]) if len(pos) >= 2 else None
+        return args.pattern, interval, count
+
+    pos = args.positional or []
+    if len(pos) == 0:
+        return None, None, None
+    elif len(pos) == 1:
+        if _is_number(pos[0]):
+            return None, float(pos[0]), None
+        else:
+            return pos[0], None, None
+    elif len(pos) == 2:
+        if _is_number(pos[0]) and _is_number(pos[1]):
+            return None, float(pos[0]), int(pos[1])
+        elif _is_number(pos[0]):
+            print(f"Error: '{pos[1]}' is not a number.", file=sys.stderr)
+            sys.exit(1)
+        else:
+            return pos[0], float(pos[1]), None
+    elif len(pos) == 3:
+        return pos[0], float(pos[1]), int(pos[2])
+    else:
+        print("Error: too many positional arguments (max 3).", file=sys.stderr)
+        sys.exit(1)
+
+
+def _fetch_models(args, url, pattern):
+    """Fetch and return all model rows (list of dicts)."""
     resp = requests.get(url + "models")
     resp.raise_for_status()
     data = resp.json()["data"]
 
-    if not args.all and not (args.id or args.tag):
+    if not args.all and not (pattern or args.tag):
         data = [m for m in data if m["status"]["value"] == "loaded"]
 
     rows = []
@@ -97,8 +144,8 @@ def cmd_ls(args):
             arg_tags = set(args.tag)
             if not arg_tags.issubset(model_tags):
                 continue
-        if args.id:
-            if not fnmatch(m["id"], args.id):
+        if pattern:
+            if not fnmatch(m["id"], pattern):
                 continue
 
         rows.append({
@@ -107,15 +154,47 @@ def cmd_ls(args):
             "PATH": get_path(args, m),
             "STATUS": m["status"]["value"],
             "CONTEXT": get_ctx_size(m),
-            "PARAMS" : get_n_params(m),
+            "PARAMS": get_n_params(m),
             "SIZE": get_size(m)
         })
+    return rows
 
-    if not rows:
-        print("No models found.")
+
+def cmd_ls(args):
+    url = get_url(args)
+    pattern, interval, count = _parse_ls_args(args)
+
+    if interval is None:
+        # single-shot mode (original behavior)
+        rows = _fetch_models(args, url, pattern)
+        if not rows:
+            print("No models found.")
+            return
+        print_table(rows, LS_COLUMNS)
         return
 
-    print_table(rows, LS_COLUMNS)
+    # polling mode
+    running = True
+
+    def handler(signum, frame):
+        nonlocal running
+        running = False
+
+    old_handler = signal.signal(signal.SIGINT, handler)
+    try:
+        iteration = 0
+        while running and (count is None or iteration < count):
+            rows = _fetch_models(args, url, pattern)
+            if rows:
+                print_table(rows, LS_COLUMNS)
+            else:
+                print("No models found.")
+
+            iteration += 1
+            if running and (count is None or iteration < count):
+                time.sleep(interval)
+    finally:
+        signal.signal(signal.SIGINT, old_handler)
 
 
 def cmd_load(args):
@@ -409,7 +488,9 @@ def main():
     ls_parser.add_argument("-t", "--tag", nargs='+', help="Show only models with these tags")
     ls_parser.add_argument("--full-path", action="store_true",
                            help="Show full paths to model files")
-    ls_parser.add_argument("id", nargs='?', help="Model ID (glob mask)")
+    ls_parser.add_argument("-p", "--pattern", help="Model ID filter (glob mask)")
+    ls_parser.add_argument("positional", nargs='*',
+                           help="[pattern] [interval] [count]")
     ls_parser.set_defaults(func=cmd_ls)
 
     # load
