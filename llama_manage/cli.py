@@ -374,7 +374,7 @@ def get_prompt_process(slot):
     total = slot.get("n_prompt_tokens")
     if total == 0 and processed == 0:
         return "-"
-    return format_number(processed) + " / " + format_number(total)
+    return format_number(processed, binary=False) + " / " + format_number(total, binary=False)
 
 def get_is_router(url):
     resp = requests.get(url + "props")
