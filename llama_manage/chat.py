@@ -26,6 +26,72 @@ def _output_non_stream(reasoning, content):
         print("assistant>", content)
 
 
+def stream_response(resp, prefix_printed=True):
+    """Parse an SSE stream from /v1/chat/completions and output tokens.
+
+    Args:
+        resp: requests response with stream=True.
+        prefix_printed: if True, the caller already printed "assistant> "
+            before calling this function. Used to decide whether to print
+            "assistant> " when switching from reasoning back to content.
+
+    Returns:
+        Full content text (reasoning is not included).
+    """
+    full_text = ""
+    last_type = None  # None, "content", "reasoning"
+
+    for line in resp.iter_lines(decode_unicode=True):
+        line = line.strip()
+        if not line or not line.startswith("data: "):
+            continue
+        data = line[6:]
+        if data == "[DONE]":
+            break
+        try:
+            event = json.loads(data)
+        except json.JSONDecodeError:
+            continue
+
+        delta = event.get("choices", [{}])[0].get("delta", {})
+
+        # Reasoning tokens
+        reasoning = delta.get("reasoning_content", "")
+        if reasoning:
+            if last_type == "content":
+                print()
+                sys.stdout.write("thinking> ")
+                sys.stdout.flush()
+            elif last_type is None:
+                # reasoning came first — caller printed "assistant> ",
+                # but we need "thinking> " instead. Overwrite with backspace.
+                if prefix_printed:
+                    # Erase "assistant> " (11 chars) and replace with "thinking> "
+                    sys.stdout.write("\r\033[Kthinking> ")
+                    sys.stdout.flush()
+            sys.stdout.write(reasoning)
+            sys.stdout.flush()
+            last_type = "reasoning"
+
+        # Content tokens
+        content = delta.get("content", "")
+        if content:
+            if last_type == "reasoning":
+                print()
+                sys.stdout.write("assistant> ")
+                sys.stdout.flush()
+            elif last_type is None and not prefix_printed:
+                # content came first and no prefix was printed yet
+                sys.stdout.write("assistant> ")
+                sys.stdout.flush()
+            sys.stdout.write(content)
+            sys.stdout.flush()
+            full_text += content
+            last_type = "content"
+
+    return full_text
+
+
 def send_message(url, headers, model_id, messages, stream):
     """Send a chat message to the server and return the assistant's content.
 
@@ -80,13 +146,10 @@ def run_once(url, headers, model_id, prompt, system_prompt, stream):
             stream=True,
         )
         resp.raise_for_status()
-        # For now, streaming in run_once is not implemented (stage 2)
-        # Fall back to non-streaming output
-        data = resp.json()
-        msg = data["choices"][0]["message"]
-        reasoning = msg.get("reasoning_content", "")
-        content = msg.get("content", "")
-        _output_non_stream(reasoning, content)
+        sys.stdout.write("assistant> ")
+        sys.stdout.flush()
+        stream_response(resp, prefix_printed=True)
+        print()
     else:
         send_message(url, headers, model_id, messages, stream=False)
 
