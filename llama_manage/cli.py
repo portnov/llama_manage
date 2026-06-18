@@ -284,6 +284,7 @@ def print_table(rows, columns):
     print(sep)
     for row in rows:
         print("  ".join(f"{str(row.get(col, '')):<{widths[col]}}" for col in columns))
+    print()
 
 
 def check_loaded(args, model_id):
