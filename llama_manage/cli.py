@@ -390,7 +390,7 @@ def cmd_pull(args):
     print("SSE stream ended unexpectedly.", file=sys.stderr)
     sys.exit(1)
 
-PS_COLUMNS = ["SLOT_ID", "MODEL", "TASK#", "CONTEXT", "PROC", "PROMPT", "DECODED"]
+PS_COLUMNS = ["SLOT_ID", "MODEL", "TASK#", "PROC", "CONTEXT", "PROMPT", "DECODED"]
 
 def get_decoded(slot):
     if "next_token" not in slot:
@@ -400,14 +400,16 @@ def get_decoded(slot):
         n_decoded = sum([t.get("n_decoded",0) for t in tokens])
     else:
         n_decoded = tokens.get("n_decoded", 0)
-    return format_number(n_decoded)
+    return format_number(n_decoded, binary=False)
 
 def get_prompt_process(slot):
     processed = slot.get("n_prompt_tokens_processed", 0)
-    total = slot.get("n_prompt_tokens")
-    if total == 0 and processed == 0:
-        return "-"
-    return format_number(processed, binary=False) + " / " + format_number(total, binary=False)
+    return format_number(processed, binary=False)
+
+def get_context_size(slot):
+    used = slot.get("n_prompt_tokens", 0)
+    total = slot.get("n_ctx", 0)
+    return format_number(used, binary=False) + " / " + format_number(total, binary=False)
 
 def get_is_router(url, headers):
     resp = requests.get(url + "props", headers=headers)
@@ -461,8 +463,8 @@ def _fetch_slots(args, url):
             "SLOT_ID": s["id"],
             "MODEL": s.get("model", "-"),
             "TASK#": s["id_task"],
-            "CONTEXT": s["n_ctx"],
             "PROC": "Y" if s["is_processing"] else "N",
+            "CONTEXT": get_context_size(s),
             "PROMPT": get_prompt_process(s),
             "DECODED": get_decoded(s),
         })
