@@ -277,7 +277,7 @@ def cmd_pull(args):
     print("SSE stream ended unexpectedly.", file=sys.stderr)
     sys.exit(1)
 
-PS_COLUMNS = ["ID", "TASK", "CONTEXT", "PROC", "PROMPT", "DECODED"]
+PS_COLUMNS = ["SLOT_ID", "MODEL", "TASK#", "CONTEXT", "PROC", "PROMPT", "DECODED"]
 
 def get_decoded(slot):
     if "next_token" not in slot:
@@ -296,29 +296,58 @@ def get_prompt_process(slot):
         return "-"
     return format_number(processed) + " / " + format_number(total)
 
+def get_is_router(url):
+    resp = requests.get(url + "props")
+    resp.raise_for_status()
+    data = resp.json()
+    return data.get("role", "") == "router"
+
+def get_loaded_models(url):
+    resp = requests.get(url + "models")
+    resp.raise_for_status()
+    data = resp.json()["data"]
+    return [m["id"] for m in data if m["status"]["value"] == "loaded"]
+
 def cmd_ps(args):
     url = get_url(args)
-    if args.id is None:
-        params = None
+    all_slots = []
+    if args.model is None:
+        if get_is_router(url):
+            models = get_loaded_models(url)
+            for model_id in models:
+                resp = requests.get(url + "slots", params={"model": model_id})
+                resp.raise_for_status()
+                slots = resp.json()
+                for slot in slots:
+                    slot["model"] = model_id
+                all_slots.extend(slots)
+        else:
+            resp = requests.get(url + "slots")
+            resp.raise_for_status()
+            slots = resp.json()
+            all_slots.extend(slots)
     else:
-        check_loaded(args, args.id)
-        params = {"model": args.id}
-    resp = requests.get(url + "slots", params=params)
-    resp.raise_for_status()
-    slots = resp.json()
+        check_loaded(args, args.model)
+        resp = requests.get(url + "slots", params={"model": args.model})
+        resp.raise_for_status()
+        slots = resp.json()
+        for slot in slots:
+            slot["model"] = args.model
+        all_slots.extend(slots)
 
     if not args.all:
-        slots = [s for s in slots if s["is_processing"]]
+        all_slots = [s for s in all_slots if s["is_processing"]]
 
-    if not slots:
+    if not all_slots:
         print("No slots found.")
         return
 
     rows = []
-    for s in slots:
+    for s in all_slots:
         rows.append({
-            "ID": s["id"],
-            "TASK": s["id_task"],
+            "SLOT_ID": s["id"],
+            "MODEL": s.get("model", "-"),
+            "TASK#": s["id_task"],
             "CONTEXT": s["n_ctx"],
             "PROC": "Y" if s["is_processing"] else "N",
             "PROMPT": get_prompt_process(s),
@@ -360,7 +389,7 @@ def main():
     ps_parser = sub.add_parser("ps", help="List processing slots")
     ps_parser.add_argument("-a", "--all", action="store_true",
                            help="Show all slots, not just active ones")
-    ps_parser.add_argument("id", nargs='?', help="Model ID")
+    ps_parser.add_argument("-m", "--model", help="Model ID")
     ps_parser.set_defaults(func=cmd_ps)
 
     # pull
