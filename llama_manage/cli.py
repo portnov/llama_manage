@@ -4,7 +4,9 @@
 import argparse
 import json
 import os
+import shutil
 import signal
+import subprocess
 import sys
 import threading
 import time
@@ -95,6 +97,7 @@ def show_tags(model):
     return ", ".join(tags)
 
 LS_COLUMNS = ["ID", "TAGS", "PATH", "STATUS", "CONTEXT", "PARAMS", "SIZE"]
+LS_LONG_COLUMNS = LS_COLUMNS + ["INPUT", "OUTPUT", "ARGS"]
 
 def get_ctx_size(model):
     if "meta" not in model:
@@ -112,6 +115,74 @@ def get_size(model):
     if "meta" not in model:
         return "-"
     return format_number(model["meta"]["size"], unit='B', binary=True)
+
+def _format_modalities(mod_list):
+    """Format a list of modality strings into a readable string."""
+    if not mod_list:
+        return "-"
+    # Normalize: title-case each modality
+    return ", ".join(m.strip().title() for m in mod_list)
+
+def get_input_modalities(model):
+    arch = model.get("architecture", {})
+    return _format_modalities(arch.get("input_modalities", []))
+
+def get_output_modalities(model):
+    arch = model.get("architecture", {})
+    return _format_modalities(arch.get("output_modalities", []))
+
+def get_status_args(model):
+    args = model.get("status", {}).get("args", [])
+    if not args:
+        return "-"
+    return " ".join(args)
+
+
+def _print_expanded(rows, columns):
+    """Print rows in expanded 'key: value' format, separated by blank lines."""
+    max_key_len = max(len(c) for c in columns)
+    for i, row in enumerate(rows):
+        if i > 0:
+            print()
+        for col in columns:
+            val = str(row.get(col, ""))
+            print(f"  {col:<{max_key_len}}: {val}")
+
+
+def _needs_pager(text):
+    """Check if output text exceeds terminal dimensions."""
+    if not sys.stdout.isatty():
+        return False
+    try:
+        term_size = shutil.get_terminal_size(fallback=(0, 0))
+        lines = text.splitlines()
+        if term_size.lines > 0 and len(lines) > term_size.lines:
+            return True
+        if term_size.columns > 0:
+            max_width = max(len(line) for line in lines) if lines else 0
+            if max_width > term_size.columns:
+                return True
+    except Exception:
+        pass
+    return False
+
+
+def _print_with_pager(text):
+    """Print text, piping through a pager if stdout is a terminal and output
+    exceeds terminal size."""
+    if _needs_pager(text):
+        pager = os.environ.get("PAGER", "less")
+        try:
+            proc = subprocess.run(
+                pager, shell=True, input=text, text=True,
+                stdout=sys.stdout, stderr=sys.stderr,
+            )
+            sys.exit(proc.returncode)
+        except (FileNotFoundError, PermissionError):
+            # pager not available — fall back to direct print
+            pass
+    sys.stdout.write(text)
+
 
 def _is_number(s):
     """Check if a string looks like a number (int or float)."""
@@ -180,21 +251,43 @@ def _fetch_models(args, url, pattern):
             if not fnmatch(m["id"], pattern):
                 continue
 
-        rows.append({
+        row = {
             "ID": m["id"],
             "TAGS": show_tags(m),
             "PATH": get_path(args, m),
             "STATUS": m["status"]["value"],
             "CONTEXT": get_ctx_size(m),
             "PARAMS": get_n_params(m),
-            "SIZE": get_size(m)
-        })
+            "SIZE": get_size(m),
+            "INPUT": get_input_modalities(m),
+            "OUTPUT": get_output_modalities(m),
+            "ARGS": get_status_args(m),
+        }
+        rows.append(row)
     return rows
+
+
+def _render_ls_output(rows, columns, expanded):
+    """Render model rows into a string (table or expanded format)."""
+    import io
+    old_stdout = sys.stdout
+    sys.stdout = buf = io.StringIO()
+    try:
+        if expanded:
+            _print_expanded(rows, columns)
+        else:
+            print_table(rows, columns)
+    finally:
+        sys.stdout = old_stdout
+    return buf.getvalue()
 
 
 def cmd_ls(args):
     url = get_url(args)
     pattern, interval, count = _parse_ls_args(args)
+
+    columns = LS_LONG_COLUMNS if args.long else LS_COLUMNS
+    expanded = args.expanded
 
     if interval is None:
         # single-shot mode (original behavior)
@@ -202,10 +295,11 @@ def cmd_ls(args):
         if not rows:
             print("No models found.")
             return
-        print_table(rows, LS_COLUMNS)
+        text = _render_ls_output(rows, columns, expanded)
+        _print_with_pager(text)
         return
 
-    # polling mode
+    # polling mode (no pager, no expanded — continuous output to terminal)
     running = True
 
     def handler(signum, frame):
@@ -218,7 +312,7 @@ def cmd_ls(args):
         while running and (count is None or iteration < count):
             rows = _fetch_models(args, url, pattern)
             if rows:
-                print_table(rows, LS_COLUMNS)
+                print_table(rows, columns)
             else:
                 print("No models found.")
 
@@ -527,6 +621,10 @@ def main():
     ls_parser.add_argument("--full-path", action="store_true",
                            help="Show full paths to model files")
     ls_parser.add_argument("-p", "--pattern", help="Model ID filter (glob mask)")
+    ls_parser.add_argument("-l", "--long", action="store_true",
+                           help="Show extra columns: INPUT, OUTPUT, ARGS")
+    ls_parser.add_argument("-x", "--expanded", action="store_true",
+                           help="Expanded output (key: value format)")
     ls_parser.add_argument("positional", nargs='*',
                            help="[pattern] [interval] [count]")
     ls_parser.set_defaults(func=cmd_ls)
