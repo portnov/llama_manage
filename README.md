@@ -64,6 +64,31 @@ llama-manage ls -t vision            # filter by tags
 llama-manage ls --full-path          # show full file paths
 ```
 
+**Extended columns** (`-l` / `--long`): adds INPUT (input modalities), OUTPUT (output modalities), and ARGS (server startup args).
+
+```bash
+llama-manage ls -l                   # show extended columns
+```
+
+**Custom columns** (`-o` / `--output`): specify exactly which columns to display.
+
+```bash
+llama-manage ls -o ID,PATH,ARGS      # show only ID, PATH, ARGS
+llama-manage ls -o ID,SIZE,INPUT     # any combination
+```
+
+Available columns: `ID`, `TAGS`, `PATH`, `STATUS`, `CONTEXT`, `PARAMS`, `SIZE`, `INPUT`, `OUTPUT`, `ARGS`.
+
+**Expanded output** (`-x` / `--expanded`): replaces the table with a `key: value` format, one model per block.
+
+```bash
+llama-manage ls -x                   # expanded output
+llama-manage ls -l -x                # expanded with all columns
+llama-manage ls -o ID,PATH -x        # expanded with custom columns
+```
+
+**Auto-pager:** when output is larger than the terminal, it is automatically piped through a pager (`$PAGER`, default `less`). This applies to single-shot mode only (not polling).
+
 **Polling mode** (like `iostat`):
 
 ```bash
@@ -184,6 +209,12 @@ export LLAMA_URL=http://localhost:8080/
 
 # List loaded models
 llama-manage ls
+
+# Show extended info (modalities, args)
+llama-manage ls -l
+
+# Custom columns in expanded format
+llama-manage ls -o ID,PATH,SIZE,INPUT -x
 
 # Download and load a model
 llama-manage pull unsloth/gemma-4-E2B-it-qat-GGUF:Q8_0
