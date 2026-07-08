@@ -5,6 +5,12 @@ import sys
 
 import requests
 
+# Enable readline for interactive input (backspace, arrows, history, etc.)
+try:
+    import readline  # noqa: F401 — importing enables line editing in input()
+except ImportError:
+    pass  # readline unavailable (e.g., Windows without pyreadline)
+
 
 def _check_model_loaded(url, headers, model_id):
     """Check if a model with the given ID is loaded on the server."""
