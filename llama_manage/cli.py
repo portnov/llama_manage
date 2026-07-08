@@ -282,11 +282,30 @@ def _render_ls_output(rows, columns, expanded):
     return buf.getvalue()
 
 
+ALL_LS_COLUMNS = LS_LONG_COLUMNS  # superset of all available columns
+
+
+def _resolve_ls_columns(args):
+    """Determine which columns to display based on -l and -o flags."""
+    if args.output is not None:
+        cols = [c.strip() for c in args.output.split(",")]
+        invalid = [c for c in cols if c not in ALL_LS_COLUMNS]
+        if invalid:
+            print(
+                f"Error: unknown column(s): {', '.join(invalid)}. "
+                f"Available: {', '.join(ALL_LS_COLUMNS)}",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        return cols
+    return LS_LONG_COLUMNS if args.long else LS_COLUMNS
+
+
 def cmd_ls(args):
     url = get_url(args)
     pattern, interval, count = _parse_ls_args(args)
 
-    columns = LS_LONG_COLUMNS if args.long else LS_COLUMNS
+    columns = _resolve_ls_columns(args)
     expanded = args.expanded
 
     if interval is None:
@@ -625,6 +644,7 @@ def main():
                            help="Show extra columns: INPUT, OUTPUT, ARGS")
     ls_parser.add_argument("-x", "--expanded", action="store_true",
                            help="Expanded output (key: value format)")
+    ls_parser.add_argument("-o", "--output", help="Comma-separated list of columns to display")
     ls_parser.add_argument("positional", nargs='*',
                            help="[pattern] [interval] [count]")
     ls_parser.set_defaults(func=cmd_ls)
