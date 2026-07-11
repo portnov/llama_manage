@@ -14,8 +14,10 @@ except ImportError:
 
 def _check_model_loaded(url, headers, model_id):
     """Check if a model with the given ID is loaded on the server."""
+    from llama_manage.cli import _check_response
+
     resp = requests.get(url + "models", headers=headers)
-    resp.raise_for_status()
+    _check_response(resp)
     data = resp.json()["data"]
     for m in data:
         if m["id"] == model_id and m["status"]["value"] == "loaded":
@@ -109,13 +111,15 @@ def _send_and_stream(url, headers, model_id, messages, stream, prefix_printed=Tr
         "messages": messages,
         "stream": stream,
     }
+    from llama_manage.cli import _check_response
+
     resp = requests.post(
         url + "v1/chat/completions",
         headers=headers,
         json=body,
         stream=stream,
     )
-    resp.raise_for_status()
+    _check_response(resp)
 
     if stream:
         if prefix_printed:
@@ -148,26 +152,13 @@ def run_once(url, headers, model_id, prompt, system_prompt, stream):
         if stream:
             print()
     except requests.exceptions.HTTPError as e:
+        from llama_manage.cli import _http_error
         print()
-        try:
-            err = e.response.json().get("error", {})
-            msg = err.get("message", str(e))
-        except (json.JSONDecodeError, AttributeError):
-            msg = str(e)
-        print(f"Error: {msg}", file=sys.stderr)
+        print(f"Error: {_http_error(e.response)}", file=sys.stderr)
         sys.exit(1)
     except (KeyboardInterrupt, requests.exceptions.ConnectionError):
         print()
         sys.exit(130)  # standard exit code for Ctrl-C
-
-
-def _format_error(e):
-    """Extract a human-readable error message from an HTTPError."""
-    try:
-        err = e.response.json().get("error", {})
-        return err.get("message", str(e))
-    except (json.JSONDecodeError, AttributeError):
-        return str(e)
 
 
 def run_repl(url, headers, model_id, system_prompt, stream):
@@ -198,9 +189,10 @@ def run_repl(url, headers, model_id, system_prompt, stream):
                 )
                 messages.append({"role": "assistant", "content": content})
             except requests.exceptions.HTTPError as e:
+                from llama_manage.cli import _http_error
                 # Server error (e.g., context overflow)
                 print()
-                print(f"\nError: {_format_error(e)}", file=sys.stderr)
+                print(f"\nError: {_http_error(e.response)}", file=sys.stderr)
                 break
             except (KeyboardInterrupt, requests.exceptions.ConnectionError):
                 # Ctrl-C or network broken during generation

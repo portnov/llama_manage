@@ -36,6 +36,25 @@ def _read_file_value(value):
     return value
 
 
+def _http_error(resp):
+    """Extract a human-readable error message from an HTTPError response.
+    Tries JSON body first, falls back to raw text."""
+    try:
+        err = resp.json().get("error", {})
+        return err.get("message", resp.text)
+    except (json.JSONDecodeError, ValueError):
+        return resp.text
+
+
+def _check_response(resp):
+    """Call raise_for_status() and re-raise with server body in the message."""
+    try:
+        resp.raise_for_status()
+    except requests.exceptions.HTTPError as e:
+        msg = _http_error(resp)
+        raise requests.exceptions.HTTPError(f"{e} — {msg}", response=resp) from None
+
+
 def get_api_key(args) -> str | None:
     """Get API key from CLI arg, or env (in that priority order)."""
     # 1. --api-key (CLI arg, supports @filename)
@@ -238,7 +257,7 @@ def _parse_ls_args(args):
 def _fetch_models(args, url, pattern):
     """Fetch and return all model rows (list of dicts)."""
     resp = requests.get(url + "models", headers=get_headers(args))
-    resp.raise_for_status()
+    _check_response(resp)
     data = resp.json()["data"]
 
     if not args.all and not (pattern or args.tag):
@@ -349,7 +368,7 @@ def cmd_ls(args):
 def cmd_load(args):
     url = get_url(args)
     resp = requests.post(url + "models/load", headers=get_headers(args), json={"model": args.id})
-    resp.raise_for_status()
+    _check_response(resp)
     if resp.json().get("success"):
         print(f"Model {args.id} loading started.")
     else:
@@ -360,7 +379,7 @@ def cmd_load(args):
 def cmd_unload(args):
     url = get_url(args)
     resp = requests.post(url + "models/unload", headers=get_headers(args), json={"model": args.id})
-    resp.raise_for_status()
+    _check_response(resp)
     if resp.json().get("success"):
         print(f"Model {args.id} unloading started.")
     else:
@@ -378,7 +397,7 @@ def cmd_rm(args):
             return
 
     resp = requests.delete(url + "models", headers=get_headers(args), params={"model": model_id})
-    resp.raise_for_status()
+    _check_response(resp)
     if resp.json().get("success"):
         print(f"Model {model_id} deleted.")
     else:
@@ -407,7 +426,7 @@ def print_table(rows, columns):
 def check_loaded(args, model_id):
     url = get_url(args)
     resp = requests.get(url + "models", headers=get_headers(args))
-    resp.raise_for_status()
+    _check_response(resp)
     data = resp.json()["data"]
     for m in data:
         if m["id"] == model_id and m["status"]["value"] == "loaded":
@@ -438,13 +457,13 @@ def cmd_pull(args):
 
     # Subscribe to SSE first, then trigger download
     sse_resp = requests.get(url + "models/sse", headers=get_headers(args), stream=True)
-    sse_resp.raise_for_status()
+    sse__check_response(resp)
 
     # Start the download in a separate thread so we don't block SSE
     def trigger_download():
         time.sleep(0.5)
         resp = requests.post(url + "models", headers=get_headers(args), json={"model": model_id})
-        resp.raise_for_status()
+        _check_response(resp)
     threading.Thread(target=trigger_download, daemon=True).start()
 
     total_done = 0
@@ -530,13 +549,13 @@ def get_context_size(slot):
 
 def get_is_router(url, headers):
     resp = requests.get(url + "props", headers=headers)
-    resp.raise_for_status()
+    _check_response(resp)
     data = resp.json()
     return data.get("role", "") == "router"
 
 def get_loaded_models(url, headers):
     resp = requests.get(url + "models", headers=headers)
-    resp.raise_for_status()
+    _check_response(resp)
     data = resp.json()["data"]
     return [m["id"] for m in data if m["status"]["value"] == "loaded"]
 
@@ -549,20 +568,20 @@ def _fetch_slots(args, url):
             models = get_loaded_models(url, headers)
             for model_id in models:
                 resp = requests.get(url + "slots", headers=headers, params={"model": model_id})
-                resp.raise_for_status()
+                _check_response(resp)
                 slots = resp.json()
                 for slot in slots:
                     slot["model"] = model_id
                 all_slots.extend(slots)
         else:
             resp = requests.get(url + "slots", headers=headers)
-            resp.raise_for_status()
+            _check_response(resp)
             slots = resp.json()
             all_slots.extend(slots)
     else:
         check_loaded(args, args.model)
         resp = requests.get(url + "slots", headers=headers, params={"model": args.model})
-        resp.raise_for_status()
+        _check_response(resp)
         slots = resp.json()
         for slot in slots:
             slot["model"] = args.model
