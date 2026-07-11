@@ -38,16 +38,24 @@ If neither is set, the utility exits with an error.
 API key is determined by (in priority order):
 
 1. The `--api-key` flag (key passed directly)
-2. The `--api-key-file` flag (reads key from file)
-3. The `$LLAMA_API_KEY` environment variable
-4. No authentication (may receive 401 from server)
+2. The `$LLAMA_API_KEY` environment variable
+3. No authentication (may receive 401 from server)
 
 ```bash
 export LLAMA_API_KEY=your-secret-key
 # or
 llama-manage --api-key your-secret-key ls
 # or
-llama-manage --api-key-file ~/.llama-api-key ls
+llama-manage --api-key @key.txt ls
+```
+
+### `@filename` syntax
+
+Long-text parameters support `@filename` — the file's contents are used as the value:
+
+```bash
+llama-manage --api-key @key.txt ls
+llama-manage run --system @system-prompt.txt @prompt.txt
 ```
 
 ## Commands

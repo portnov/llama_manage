@@ -217,7 +217,7 @@ def run_repl(url, headers, model_id, system_prompt, stream):
 
 def cmd_run(args):
     """Entry point for the `run` command."""
-    from llama_manage.cli import get_url, get_headers
+    from llama_manage.cli import get_url, get_headers, _read_file_value
 
     url = get_url(args)
     headers = get_headers(args)
@@ -231,7 +231,10 @@ def cmd_run(args):
         )
         sys.exit(1)
 
-    if args.prompt is not None:
-        run_once(url, headers, model_id, args.prompt, args.system, not args.no_stream)
+    system_prompt = _read_file_value(args.system) if args.system else None
+    prompt = _read_file_value(args.prompt) if args.prompt is not None else None
+
+    if prompt is not None:
+        run_once(url, headers, model_id, prompt, system_prompt, not args.no_stream)
     else:
-        run_repl(url, headers, model_id, args.system, not args.no_stream)
+        run_repl(url, headers, model_id, system_prompt, not args.no_stream)

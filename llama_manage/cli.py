@@ -23,23 +23,27 @@ def get_url(args) -> str:
     return url.rstrip("/") + "/"
 
 
+def _read_file_value(value):
+    """If value starts with '@', read the file and return its contents.
+    Otherwise return the value as-is."""
+    if isinstance(value, str) and value.startswith("@"):
+        filepath = value[1:]
+        try:
+            return open(filepath).read()
+        except OSError as e:
+            print(f"Error reading file {filepath}: {e}", file=sys.stderr)
+            sys.exit(1)
+    return value
+
+
 def get_api_key(args) -> str | None:
-    """Get API key from CLI arg, file, or env (in that priority order)."""
-    # 1. --api-key (CLI arg)
+    """Get API key from CLI arg, or env (in that priority order)."""
+    # 1. --api-key (CLI arg, supports @filename)
     key = getattr(args, "api_key", None)
     if key:
-        return key
+        return _read_file_value(key)
 
-    # 2. --api-key-file
-    key_file = getattr(args, "api_key_file", None)
-    if key_file:
-        try:
-            return open(key_file).read().strip()
-        except OSError as e:
-            print(f"Error reading API key file: {e}", file=sys.stderr)
-            sys.exit(1)
-
-    # 3. Environment variable
+    # 2. Environment variable
     key = os.environ.get("LLAMA_API_KEY")
     if key:
         return key
@@ -627,8 +631,7 @@ def main():
         description="llama.cpp server management CLI",
     )
     parser.add_argument("--url", help="Server URL (e.g. http://localhost:8080/)")
-    parser.add_argument("--api-key", help="API key for authentication")
-    parser.add_argument("--api-key-file", help="Path to file containing API key")
+    parser.add_argument("--api-key", help="API key for authentication (use @filename to read from file)")
 
     sub = parser.add_subparsers(dest="command")
 
@@ -686,8 +689,10 @@ def main():
     from llama_manage.chat import cmd_run as cmd_run_func
     run_parser = sub.add_parser("run", help="Chat with a model")
     run_parser.add_argument("id", help="Model ID")
-    run_parser.add_argument("prompt", nargs='?', help="Single prompt (non-interactive)")
-    run_parser.add_argument("--system", help="System prompt")
+    run_parser.add_argument("prompt", nargs='?',
+                            help="Single prompt (non-interactive; use @filename to read from file)")
+    run_parser.add_argument("--system",
+                            help="System prompt (use @filename to read from file)")
     run_parser.add_argument("--no-stream", action="store_true",
                             help="Disable streaming")
     run_parser.set_defaults(func=cmd_run_func)
