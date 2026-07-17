@@ -120,7 +120,7 @@ def show_tags(model):
     return ", ".join(tags)
 
 LS_COLUMNS = ["ID", "TAGS", "PATH", "STATUS", "CONTEXT", "PARAMS", "SIZE"]
-LS_LONG_COLUMNS = LS_COLUMNS + ["INPUT", "OUTPUT", "ARGS"]
+LS_LONG_COLUMNS = LS_COLUMNS + ["SOURCE", "INPUT", "OUTPUT", "ARGS"]
 
 def get_ctx_size(model):
     if "meta" not in model:
@@ -159,6 +159,10 @@ def get_status_args(model):
     if not args:
         return "-"
     return " ".join(args)
+
+
+def get_source(model):
+    return model.get("source", "-")
 
 
 def _print_expanded(rows, columns):
@@ -273,6 +277,9 @@ def _fetch_models(args, url, pattern):
         if pattern:
             if not fnmatch(m["id"], pattern):
                 continue
+        if args.source:
+            if m.get("source", "-") != args.source:
+                continue
 
         row = {
             "ID": m["id"],
@@ -282,6 +289,7 @@ def _fetch_models(args, url, pattern):
             "CONTEXT": get_ctx_size(m),
             "PARAMS": get_n_params(m),
             "SIZE": get_size(m),
+            "SOURCE": get_source(m),
             "INPUT": get_input_modalities(m),
             "OUTPUT": get_output_modalities(m),
             "ARGS": get_status_args(m),
@@ -326,6 +334,11 @@ def _resolve_ls_columns(args):
 
 def cmd_ls(args):
     url = get_url(args)
+    # Resolve -P / -C shortcuts into --source
+    if args.preset_only:
+        args.source = "preset"
+    elif args.cache_only:
+        args.source = "cache"
     pattern, interval, count = _parse_ls_args(args)
 
     columns = _resolve_ls_columns(args)
@@ -662,8 +675,14 @@ def main():
     ls_parser.add_argument("--full-path", action="store_true",
                            help="Show full paths to model files")
     ls_parser.add_argument("-p", "--pattern", help="Model ID filter (glob mask)")
+    ls_parser.add_argument("--source", choices=["preset", "cache"],
+                           help="Filter by source (preset or cache)")
+    ls_parser.add_argument("-P", action="store_true", dest="preset_only",
+                           help="Show only preset models (shortcut for --source=preset)")
+    ls_parser.add_argument("-C", action="store_true", dest="cache_only",
+                           help="Show only cached models (shortcut for --source=cache)")
     ls_parser.add_argument("-l", "--long", action="store_true",
-                           help="Show extra columns: INPUT, OUTPUT, ARGS")
+                           help="Show extra columns: SOURCE, INPUT, OUTPUT, ARGS")
     ls_parser.add_argument("-x", "--expanded", action="store_true",
                            help="Expanded output (key: value format)")
     ls_parser.add_argument("-o", "--output", help="Comma-separated list of columns to display")
