@@ -470,7 +470,7 @@ def cmd_pull(args):
 
     # Subscribe to SSE first, then trigger download
     sse_resp = requests.get(url + "models/sse", headers=get_headers(args), stream=True)
-    sse__check_response(resp)
+    _check_response(sse_resp)
 
     # Start the download in a separate thread so we don't block SSE
     def trigger_download():
